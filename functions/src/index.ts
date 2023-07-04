@@ -3,11 +3,15 @@ import * as functions from 'firebase-functions'
 import * as admin from 'firebase-admin'
 import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
+import {
+    EquipmentMaintenanceMap,
+    IMaintenanceReport,
+    IMaintenanceReportEquipment,
+    IMaintenanceReportEquipmentType,
+} from './types'
+import { getEquipmentName, getEquipmentTypesList } from './contentful'
 
 admin.initializeApp(functions.config().firebase)
-
-const contentfulSpaceId = 'v00lofp5qjmx'
-const contentfulAccessToken = '4Av2evmSsl_ZqurMdfVdX0RQry3fQGihm3h7JAa4nXI'
 
 // Start writing functions
 // https://firebase.google.com/docs/functions/typescript
@@ -15,18 +19,28 @@ const contentfulAccessToken = '4Av2evmSsl_ZqurMdfVdX0RQry3fQGihm3h7JAa4nXI'
 export const helloWorld = functions.https.onRequest((request, response) => {
     functions.logger.info('Hello logs!', { structuredData: true })
 
+    run().finally(() => {
+        response.send('Hello from Firebase!')
+    })
+})
+
+async function run() {
     const db = admin.firestore()
 
     const now = new Date()
 
-    collectMaintenances(db, now.getMonth() + 1, now.getFullYear())
-        .then(groupMaintenancesByEquipment)
-        .then((map) =>
-            generateMaintenanceReport(map, now).finally(() => {
-                response.send('Hello from Firebase!')
-            }),
-        )
-})
+    const maintenances = await collectMaintenances(
+        db,
+        now.getMonth() + 1,
+        now.getFullYear(),
+    )
+
+    const map = await groupMaintenancesByEquipment(maintenances)
+
+    const report = await generateMaintenanceReport(map, now)
+
+    await generateExcel(report)
+}
 
 async function collectMaintenances(
     db: admin.firestore.Firestore,
@@ -56,8 +70,6 @@ async function collectMaintenances(
     return documents
 }
 
-type EquipmentMaintenanceMap = Map<string, admin.firestore.DocumentData[]>
-
 async function groupMaintenancesByEquipment(
     documents: admin.firestore.DocumentData[],
 ) {
@@ -72,28 +84,6 @@ async function groupMaintenancesByEquipment(
     })
 
     return map
-}
-
-interface IMaintenanceReportMaintenance {
-    date: Date
-    outcome: string
-}
-
-interface IMaintenanceReportEquipment {
-    name: string
-    maintenances: Array<IMaintenanceReportMaintenance>
-}
-
-interface IMaintenanceReportEquipmentType {
-    name: string
-    equipments: Array<IMaintenanceReportEquipment>
-}
-
-interface IMaintenanceReport {
-    name: string
-    date: Date
-    reportMonthYear: string
-    equipmentTypes: Array<IMaintenanceReportEquipmentType>
 }
 
 async function generateMaintenanceReport(
@@ -137,56 +127,7 @@ async function generateMaintenanceReport(
     return report
 }
 
-function getEntityPath(id: string) {
-    return `https://cdn.contentful.com/spaces/${contentfulSpaceId}/environments/master/entries/${id}?access_token=${contentfulAccessToken}`
-}
-
-async function getEquipmentTypesList(): Promise<IEquipmentType[]> {
-    const path = getEntityPath('4Xi1mtiYcpKsR2ZKWLn9mN')
-
-    const response = await fetch(path).then((res) => res.json())
-
-    return Promise.all(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response.fields.equipmentTypes as any[]).map(
-            async (equimentType: IContentfulLink): Promise<IEquipmentType> => ({
-                id: equimentType.sys.id,
-                ...(await getEquipmentType(equimentType.sys.id)),
-            }),
-        ),
-    )
-}
-
-interface IEquipmentType {
-    id: string
-    name: string
-    equipments: Array<string>
-}
-
-interface IContentfulLink {
-    sys: {
-        id: string
-    }
-}
-
-async function getEquipmentName(id: string) {
-    const path = getEntityPath(id)
-
-    const response = await fetch(path).then((res) => res.json())
-
-    return response.fields.name as string
-}
-
-async function getEquipmentType(id: string) {
-    const path = getEntityPath(id)
-
-    const response = await fetch(path).then((res) => res.json())
-
-    return {
-        name: response.fields.name as string,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        equipments: (response.fields.equipments as any[]).map(
-            (equipment: IContentfulLink) => equipment.sys.id,
-        ),
-    }
+async function generateExcel(report: IMaintenanceReport) {
+    console.log(report)
+    //
 }
