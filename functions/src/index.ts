@@ -13,11 +13,11 @@ export const helloWorld = functions.https.onRequest((request, response) => {
 
     const now = new Date()
 
-    collectMaintenances(db, now.getMonth() + 1, now.getFullYear()).finally(
-        () => {
+    collectMaintenances(db, now.getMonth() + 1, now.getFullYear())
+        .then(groupMaintenancesByEquipment)
+        .finally(() => {
             response.send('Hello from Firebase!')
-        },
-    )
+        })
 })
 
 async function collectMaintenances(
@@ -37,6 +37,7 @@ async function collectMaintenances(
         .collection('maintenances')
         .where('date', '>=', startDate)
         .where('date', '<', endDate)
+        .orderBy('date', 'desc')
         .get()
 
     const documents: admin.firestore.DocumentData[] = []
@@ -45,4 +46,22 @@ async function collectMaintenances(
     })
 
     return documents
+}
+
+type EquipmentMaintenanceMap = Map<string, admin.firestore.DocumentData[]>
+
+async function groupMaintenancesByEquipment(
+    documents: admin.firestore.DocumentData[],
+) {
+    const map: EquipmentMaintenanceMap = new Map()
+
+    documents.forEach((doc) => {
+        if (map.has(doc.equipmentId)) {
+            map.get(doc.equipmentId)?.push(doc)
+        } else {
+            map.set(doc.equipmentId, [doc])
+        }
+    })
+
+    return map
 }
